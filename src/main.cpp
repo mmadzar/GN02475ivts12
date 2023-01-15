@@ -10,7 +10,7 @@
 #include "CanBus.h"
 
 Status status;
-PinsSettings pinsSettings;
+Settings settings;
 Intervals intervals;
 WiFiSettings wifiSettings;
 WiFiOTA wota;
@@ -33,7 +33,7 @@ void setup()
 {
   Serial.begin(115200);
   Serial.println("Serial started!");
-  pinMode(pinsSettings.led, OUTPUT);
+  pinMode(settings.led, OUTPUT);
   wota.setupWiFi();
   wota.setupOTA();
   mqtt.setup();

@@ -5,7 +5,7 @@ CAN_FRAME frames[3];
 long displayValue = 0;
 int consumptionCounter = 0; // 0 - 65535(0xFFFF)
 MqttPubSub *mqttClientCan;
-PinsSettings settingsCollectors;
+Settings settingsCollectors;
 
 CanBus::CanBus()
 {
@@ -15,9 +15,9 @@ CanBus::CanBus()
 void CanBus::init()
 {
   // provide power for can bus board
-  pinMode(pinsSettings.canpwr, OUTPUT);
-  digitalWrite(pinsSettings.canpwr, HIGH);
-  CAN0.setCANPins(pinsSettings.can0_rx, pinsSettings.can0_tx);
+  pinMode(settings.canpwr, OUTPUT);
+  digitalWrite(settings.canpwr, HIGH);
+  CAN0.setCANPins(settings.can0_rx, settings.can0_tx);
 }
 
 void CanBus::setup(class MqttPubSub &mqtt_client, Bytes2WiFi &wifiport, Bytes2WiFi &portDebug)
@@ -31,10 +31,10 @@ void CanBus::setup(class MqttPubSub &mqtt_client, Bytes2WiFi &wifiport, Bytes2Wi
 
   for (size_t i = 0; i < CollectorCount; i++)
   {
-    CollectorConfig *sc = &pinsSettings.collectors[i];
+    CollectorConfig *sc = &settings.collectors[i];
     configs[i] = new CollectorConfig(sc->name, sc->sendRate);
     collectors[i] = new Collector(*configs[i]);
-    collectors[i]->onChange([](const char *name, int value)
+    collectors[i]->onChange([](const char *name, int value, int min, int max, int samplesCollected, char *timestamp)
                             { 
                               status.collectors[settingsCollectors.getCollectorIndex(name)]=value;
                               mqttClientCan->sendMessage(String(value), String(wifiSettings.hostname) + "/out/collectors/" + name); });
@@ -91,25 +91,6 @@ void CanBus::handle()
   {
     lastMsgRcv = status.currentMillis;
     handleFrame(frame);
-    // switch (frame.id)
-    // {
-    //   // ISA IVT Shunt codes
-    // case 0x521:
-    // case 0x630:
-    //   handle521(frame); // U1
-    //   break;
-    // case 0x522:
-    // case 0x620:
-    //   handle522(frame); // I
-    //   break;
-    // case 0x680:
-    //   handle680(frame); // current counter
-    //   break;
-    // case 0x525:
-    //   handle525(frame);
-    // default:
-    //   break;
-    // }
 
     // store message to buffer
     b2w->addBuffer(0xf1);
@@ -132,30 +113,48 @@ void CanBus::handle()
   // findCmd();
 }
 
+void getTimestamp(char *buffer)
+{
+  if (strcmp(status.SSID, "") == 0 || !getLocalTime(&(status.timeinfo), 10))
+    sprintf(buffer, "INVALID TIME               ");
+  else
+  {
+    long microsec = 0;
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+
+    microsec = tv.tv_usec;
+    strftime(buffer, 29, "%Y:%m:%d %H:%M:%S", &(status.timeinfo));
+    sprintf(buffer, "%s.%06d", buffer, microsec);
+  }
+}
+
 long CanBus::handleFrame(CAN_FRAME frame)
 {
   if (frame.id >= 0x521 && frame.id <= 0x528)
   {
     const long v = (long)((frame.data.bytes[2] << 24) | (frame.data.bytes[3] << 16) | (frame.data.bytes[4] << 8) | (frame.data.bytes[5]));
+    char ts[29];
+    getTimestamp(ts);
     switch (frame.id)
     {
     case 0x521: // mA
-      collectors[settingsCollectors.getCollectorIndex("current")]->handle((int)v);
+      collectors[settingsCollectors.getCollectorIndex("current")]->handle((int)v, ts);
       break;
     case 0x522: // mV - U1 - 0x523, 0x524 for U2 and U3
-      collectors[settingsCollectors.getCollectorIndex("voltage")]->handle((int)v);
+      collectors[settingsCollectors.getCollectorIndex("voltage")]->handle((int)v, ts);
       break;
     case 0x525: // 0.1 C degrees
-      collectors[settingsCollectors.getCollectorIndex("temperature")]->handle((int)v);
+      collectors[settingsCollectors.getCollectorIndex("temperature")]->handle((int)v, ts);
       break;
     case 0x526: // 1W
-      collectors[settingsCollectors.getCollectorIndex("power")]->handle((int)v);
+      collectors[settingsCollectors.getCollectorIndex("power")]->handle((int)v, ts);
       break;
     case 0x527: // 1As - Ampere hour counter As
-      collectors[settingsCollectors.getCollectorIndex("currentCounter")]->handle((int)v);
+      collectors[settingsCollectors.getCollectorIndex("currentCounter")]->handle((int)v, ts);
       break;
     case 0x528: // 1Wh
-      collectors[settingsCollectors.getCollectorIndex("energyCounter")]->handle((int)v);
+      collectors[settingsCollectors.getCollectorIndex("energyCounter")]->handle((int)v, ts);
       break;
     default:
       break;

@@ -8,15 +8,16 @@ struct Status : public StatusBase
 {
   String ivtsCommand = "";
   int collectors[CollectorCount];
+  int switches[SwitchCount];
 
-    JsonObject GenerateJson()
+  JsonObject GenerateJson()
   {
 
     JsonObject root = this->PrepareRoot();
 
     JsonObject jcollectors = root.createNestedObject("collectors");
     for (size_t i = 0; i < CollectorCount; i++)
-      jcollectors[pinsSettings.collectors[i].name] = collectors[i];
+      jcollectors[settings.collectors[i].name] = collectors[i];
 
     return root;
   }

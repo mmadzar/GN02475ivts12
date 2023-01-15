@@ -22,7 +22,7 @@ private:
 
   int cmdId = 0x411; // default 0x411
 
-  PinsSettings pinsSettings;
+  Settings settings;
   void init();
   CAN_device_t CAN_cfg;    // CAN Config
   long previousMillis = 0; // last time a CAN Message was send

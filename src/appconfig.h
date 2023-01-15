@@ -9,19 +9,21 @@
 #include <driver/gpio.h>
 #include "shared/configtypes/configtypes.h"
 
-
 struct PinsSettings
 {
   const gpio_num_t led = (gpio_num_t)2;      // status led
-  const gpio_num_t can0_rx = (gpio_num_t)18; // can0 transciever rx line
-  const gpio_num_t can0_tx = (gpio_num_t)19; // can0 transciever tx line
+  const gpio_num_t can0_rx = (gpio_num_t)18; // rev1 16; // can0 transciever rx line
+  const gpio_num_t can0_tx = (gpio_num_t)19; // rev1 17; // can0 transciever tx line
   const gpio_num_t canpwr = (gpio_num_t)21;  // can power pin
 
-#define CollectorCount 3
+#define CollectorCount 6
   CollectorConfig collectors[CollectorCount] = {
-      {"current", 500},  // mA
-      {"voltage", 500}, // mV
-      {"counter", 500}}; // As current counter
+      {"current", 500},        // mA
+      {"voltage", 500},        // mV
+      {"temperature", 500},    // 0.1 C degrees - Shunt temperature C degrees
+      {"power", 500},          // 1W
+      {"currentCounter", 500}, // 1As current counter
+      {"energyCounter", 500}}; // 1Wh energy counter
 
   int getCollectorIndex(const char *name)
   {

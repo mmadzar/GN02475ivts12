@@ -20,27 +20,29 @@ private:
   Bytes2WiFi *b2w;
   Bytes2WiFi *b2wdebug;
 
+  int cmdId = 0x411; // default 0x411
+
   PinsSettings pinsSettings;
   void init();
   CAN_device_t CAN_cfg;    // CAN Config
-  long previousMillis = 0; // will store last time a CAN Message was send
-  int handle521(CAN_FRAME frame);
-  int handle522(CAN_FRAME frame);
-  int handle525(CAN_FRAME frame);
-  int handle680(CAN_FRAME frame);
+  long previousMillis = 0; // last time a CAN Message was send
+  long handleFrame(CAN_FRAME frame);
+
+  // find vars
+  long pos = 0;
+  long lastCmd = 0;
+  long lastMsgRcv = 0;
 
 public:
   CanBus();
   void handle();
   void setup(class MqttPubSub &mqtt_client, Bytes2WiFi &wifiport, Bytes2WiFi &portDebug);
+  void findCmd();
+  void setupGN02475();
+  void setupGN02475EnergyCounter();
   void initializeIVTS();
   void stopIVTS();
-  void stopIVTS500();
-  void stopIVTS511();
-  void stopIVTS600();
-  void stopIVTS611();
-  void stopIVTS700();
-  void stopIVTS711();
+  void stopIVTS(uint32_t id);
   void storeIVTS();
   void startIVTS();
   void initCurrentIVTS();

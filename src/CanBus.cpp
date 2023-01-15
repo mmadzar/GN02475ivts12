@@ -47,6 +47,8 @@ void CanBus::handle()
   if (status.ivtsCommand.length() > 2)
   {
     Serial.printf("Sending %s...\n", status.ivtsCommand);
+    if (status.ivtsCommand.startsWith("setupGN02475"))
+      setupGN02475();
     if (status.ivtsCommand.startsWith("initialize"))
       initializeIVTS();
     else if (status.ivtsCommand.startsWith("restart"))
@@ -57,20 +59,13 @@ void CanBus::handle()
       initCurrentIVTS();
     else if (status.ivtsCommand.startsWith("stop"))
       stopIVTS();
-    else if (status.ivtsCommand.startsWith("stop500"))
-      stopIVTS500();
-    else if (status.ivtsCommand.startsWith("stop511"))
-      stopIVTS511();
-    else if (status.ivtsCommand.startsWith("stop600"))
-      stopIVTS600();
-    else if (status.ivtsCommand.startsWith("stop611"))
-      stopIVTS611();
-    else if (status.ivtsCommand.startsWith("stop700"))
-      stopIVTS700();
-    else if (status.ivtsCommand.startsWith("stop711"))
-      stopIVTS711();
     else if (status.ivtsCommand.startsWith("start"))
       startIVTS();
+    else if (status.ivtsCommand.startsWith("findCmd"))
+    {
+      pos = 0;
+      findCmd();
+    }
     // reset executed command
     status.ivtsCommand = "";
   }
@@ -79,9 +74,9 @@ void CanBus::handle()
   if (b2w->wifiCmdPos > 5)
   {
     CAN_FRAME(newFrame);
-    newFrame.id = 0x411;
+    newFrame.id = cmdId;
     newFrame.extended = 0;
-    newFrame.rtr = 1;
+    newFrame.rtr = 0;
     newFrame.length = b2w->wifiCommand[1];
     for (size_t i = 0; i < b2w->wifiCmdPos - 2; i++)
       newFrame.data.bytes[i] = b2w->wifiCommand[i + 1];
@@ -94,25 +89,27 @@ void CanBus::handle()
   CAN_FRAME frame;
   if (CAN0.read(frame))
   {
-    switch (frame.id)
-    {
-      // ISA IVT Shunt codes
-    case 0x521:
-    case 0x630:
-      handle521(frame); // U1
-      break;
-    case 0x522:
-    case 0x620:
-      handle522(frame); // I
-      break;
-    case 0x680:
-      handle680(frame); // current counter
-      break;
-    case 0x525:
-      handle525(frame);
-    default:
-      break;
-    }
+    lastMsgRcv = status.currentMillis;
+    handleFrame(frame);
+    // switch (frame.id)
+    // {
+    //   // ISA IVT Shunt codes
+    // case 0x521:
+    // case 0x630:
+    //   handle521(frame); // U1
+    //   break;
+    // case 0x522:
+    // case 0x620:
+    //   handle522(frame); // I
+    //   break;
+    // case 0x680:
+    //   handle680(frame); // current counter
+    //   break;
+    // case 0x525:
+    //   handle525(frame);
+    // default:
+    //   break;
+    // }
 
     // store message to buffer
     b2w->addBuffer(0xf1);
@@ -131,39 +128,96 @@ void CanBus::handle()
       b2w->addBuffer(frame.data.uint8[c]);
     b2w->addBuffer(0x0a); // new line for SavvyCan and serial monitor
   }
+
+  // findCmd();
 }
 
-int CanBus::handle521(CAN_FRAME frame)
+long CanBus::handleFrame(CAN_FRAME frame)
 {
-  const long v = (long)((frame.data.bytes[2] << 24) | (frame.data.bytes[3] << 16) | (frame.data.bytes[4] << 8) | (frame.data.bytes[5]));
-  collectors[settingsCollectors.getCollectorIndex("voltage")]->handle((int)v);
-  return v;
-}
-
-int CanBus::handle522(CAN_FRAME frame)
-{
-  const long v = (long)((frame.data.bytes[2] << 24) | (frame.data.bytes[3] << 16) | (frame.data.bytes[4] << 8) | (frame.data.bytes[5]));
-  collectors[settingsCollectors.getCollectorIndex("current")]->handle((int)v);
-  return v;
-}
-
-int CanBus::handle680(CAN_FRAME frame)
-{
-  const long v = (long)((frame.data.bytes[2] << 24) | (frame.data.bytes[3] << 16) | (frame.data.bytes[4] << 8) | (frame.data.bytes[5]));
-  collectors[settingsCollectors.getCollectorIndex("counter")]->handle((int)v);
-  return v;
-}
-
-int CanBus::handle525(CAN_FRAME frame)
-{
-  // TODO
-  //  const long v = ((long)((frame.data.bytes[2] << 24) | (frame.data.bytes[3] << 16) | (frame.data.bytes[4] << 8) | (frame.data.bytes[5]))) / 10.0;
-  //  if (status.ivtsTemp != v)
-  //  {
-  //    mqttClientCan->sendMessage(String(v), String(wifiSettings.hostname) + "/out/IVTS12/temp");
-  //    status.ivtsTemp = v;
-  //  }
+  if (frame.id >= 0x521 && frame.id <= 0x528)
+  {
+    const long v = (long)((frame.data.bytes[2] << 24) | (frame.data.bytes[3] << 16) | (frame.data.bytes[4] << 8) | (frame.data.bytes[5]));
+    switch (frame.id)
+    {
+    case 0x521: // mA
+      collectors[settingsCollectors.getCollectorIndex("current")]->handle((int)v);
+      break;
+    case 0x522: // mV - U1 - 0x523, 0x524 for U2 and U3
+      collectors[settingsCollectors.getCollectorIndex("voltage")]->handle((int)v);
+      break;
+    case 0x525: // 0.1 C degrees
+      collectors[settingsCollectors.getCollectorIndex("temperature")]->handle((int)v);
+      break;
+    case 0x526: // 1W
+      collectors[settingsCollectors.getCollectorIndex("power")]->handle((int)v);
+      break;
+    case 0x527: // 1As - Ampere hour counter As
+      collectors[settingsCollectors.getCollectorIndex("currentCounter")]->handle((int)v);
+      break;
+    case 0x528: // 1Wh
+      collectors[settingsCollectors.getCollectorIndex("energyCounter")]->handle((int)v);
+      break;
+    default:
+      break;
+    }
+    return v;
+  }
   return 0;
+}
+
+void CanBus::setupGN02475()
+{
+  b2wdebug->addBuffer("Setup GN02475...\r\n", 18);
+  b2wdebug->handle();
+  stopIVTS();
+  delay(700);
+  // 0 - I - cyclic default 20ms
+  // 1 - U1 -  cyclic default 60ms
+  // 2 - U2 - off 60ms
+  // 3 - U3 - off 60ms
+  // 4 - T - cyclic 100ms
+  // 5 - W - cyclic 30ms
+  // 6 - As - cyclic 30ms
+  // 7 - Wh - cyclic 30ms
+  for (size_t i = 2; i < 8; i++)
+  {
+    outframe.id = cmdId;   // Set our transmission address ID
+    outframe.length = 8;   // Data payload 8 bytes
+    outframe.extended = 0; // Extended addresses  0=11-bit1=29bit
+    outframe.rtr = 0;      // No request
+    outframe.data.bytes[0] = (0x20 + i);
+    if (i == 2 || i == 3)
+    {
+      outframe.data.bytes[1] = 0x00; // all off
+      outframe.data.bytes[2] = 0x00; // interval
+      outframe.data.bytes[3] = 0x3c; // interval
+    }
+    else if (i == 4)
+    {
+      outframe.data.bytes[1] = 0x22; // cyclic with errors
+      outframe.data.bytes[2] = 0x00; // interval
+      outframe.data.bytes[3] = 0x64; // interval
+    }
+    else if (i == 5 || i == 6 || i == 7)
+    {
+      outframe.data.bytes[1] = 0x22; // cyclic with errors
+      outframe.data.bytes[2] = 0x00; // interval
+      outframe.data.bytes[3] = 0x1E; // interval
+    }
+    outframe.data.bytes[4] = 0x00;
+    outframe.data.bytes[5] = 0x00;
+    outframe.data.bytes[6] = 0x00;
+    outframe.data.bytes[7] = 0x00;
+    CAN0.sendFrame(outframe);
+    delay(500);
+
+    storeIVTS();
+    delay(500);
+  }
+  startIVTS();
+  delay(500);
+  b2wdebug->addBuffer("Done...\r\n", 9);
+  b2wdebug->send();
 }
 
 // IVTS related
@@ -174,13 +228,12 @@ void CanBus::initializeIVTS()
   // TODO firstframe = false;
   stopIVTS();
   delay(700);
-  Serial.println("initialization \n");
   for (int i = 0; i < 9; i++)
   {
-    outframe.id = 0x411;   // Set our transmission address ID
+    outframe.id = cmdId;   // Set our transmission address ID
     outframe.length = 8;   // Data payload 8 bytes
     outframe.extended = 0; // Extended addresses  0=11-bit1=29bit
-    outframe.rtr = 1;      // No request
+    outframe.rtr = 0;      // No request
     outframe.data.bytes[0] = (0x20 + i);
     outframe.data.bytes[1] = 0x42;
     outframe.data.bytes[2] = 0x02;
@@ -201,157 +254,74 @@ void CanBus::initializeIVTS()
   b2wdebug->send();
 }
 
+void CanBus::findCmd()
+{
+  if (pos != -1 && status.currentMillis - lastCmd > 10)
+  {
+    if (lastMsgRcv == 0 && pos > 0)
+    {
+      String msg("Found ");
+      msg = msg + String(pos - 1) + ".\n";
+      b2wdebug->addBuffer(msg.c_str(), msg.length());
+      b2wdebug->send();
+      pos = -1;
+    }
+    else if (pos <= 0x7ff)
+    {
+      pos++;
+      if (pos % 100 == 0)
+      {
+        String stat("Working ");
+        stat = stat + String(pos) + "...\n";
+        b2wdebug->addBuffer(stat.c_str(), stat.length());
+        b2wdebug->send();
+      }
+      stopIVTS(pos);
+      lastCmd = status.currentMillis;
+      lastMsgRcv = 0;
+    }
+  }
+}
+
+void CanBus::stopIVTS(uint32_t id)
+{
+  // b2wdebug->addBuffer("Stop...\r\n", 9);
+  // b2wdebug->send();
+  // SEND STOP///////
+  outframe.id = id;          // Set our transmission address ID
+  outframe.length = 8;       // Data payload 8 bytes
+  outframe.extended = false; // Extended addresses  0=11-bit1=29bit
+  outframe.rtr = 0;          // No request
+  outframe.data.uint8[0] = 0x34;
+  outframe.data.uint8[1] = 0x00;
+  outframe.data.uint8[2] = 0x01;
+  outframe.data.uint8[3] = 0x00;
+  outframe.data.uint8[4] = 0x00;
+  outframe.data.uint8[5] = 0x00;
+  outframe.data.uint8[6] = 0x00;
+  outframe.data.uint8[7] = 0x00;
+  CAN0.sendFrame(outframe);
+  // b2wdebug->addBuffer("Done...\r\n", 9);
+  // b2wdebug->send();
+}
+
 void CanBus::stopIVTS()
 {
   b2wdebug->addBuffer("Stop...\r\n", 9);
   b2wdebug->send();
   // SEND STOP///////
-  outframe.id = 0x411;   // Set our transmission address ID
-  outframe.length = 8;   // Data payload 8 bytes
-  outframe.extended = 0; // Extended addresses  0=11-bit1=29bit
-  outframe.rtr = 1;      // No request
-  outframe.data.bytes[0] = 0x34;
-  outframe.data.bytes[1] = 0x00;
-  outframe.data.bytes[2] = 0x01;
-  outframe.data.bytes[3] = 0x00;
-  outframe.data.bytes[4] = 0x00;
-  outframe.data.bytes[5] = 0x00;
-  outframe.data.bytes[6] = 0x00;
-  outframe.data.bytes[7] = 0x00;
-  CAN0.sendFrame(outframe);
-  b2wdebug->addBuffer("Done...\r\n", 9);
-  b2wdebug->send();
-}
-
-
-void CanBus::stopIVTS500()
-{
-  b2wdebug->addBuffer("Stop...\r\n", 9);
-  b2wdebug->send();
-  // SEND STOP///////
-  outframe.id = 0x500;   // Set our transmission address ID
-  outframe.length = 8;   // Data payload 8 bytes
-  outframe.extended = 0; // Extended addresses  0=11-bit1=29bit
-  outframe.rtr = 1;      // No request
-  outframe.data.bytes[0] = 0x34;
-  outframe.data.bytes[1] = 0x00;
-  outframe.data.bytes[2] = 0x01;
-  outframe.data.bytes[3] = 0x00;
-  outframe.data.bytes[4] = 0x00;
-  outframe.data.bytes[5] = 0x00;
-  outframe.data.bytes[6] = 0x00;
-  outframe.data.bytes[7] = 0x00;
-  CAN0.sendFrame(outframe);
-  b2wdebug->addBuffer("Done...\r\n", 9);
-  b2wdebug->send();
-}
-
-void CanBus::stopIVTS511()
-{
-  b2wdebug->addBuffer("Stop...\r\n", 9);
-  b2wdebug->send();
-  // SEND STOP///////
-  outframe.id = 0x511;   // Set our transmission address ID
-  outframe.length = 8;   // Data payload 8 bytes
-  outframe.extended = 0; // Extended addresses  0=11-bit1=29bit
-  outframe.rtr = 1;      // No request
-  outframe.data.bytes[0] = 0x34;
-  outframe.data.bytes[1] = 0x00;
-  outframe.data.bytes[2] = 0x01;
-  outframe.data.bytes[3] = 0x00;
-  outframe.data.bytes[4] = 0x00;
-  outframe.data.bytes[5] = 0x00;
-  outframe.data.bytes[6] = 0x00;
-  outframe.data.bytes[7] = 0x00;
-  CAN0.sendFrame(outframe);
-  b2wdebug->addBuffer("Done...\r\n", 9);
-  b2wdebug->send();
-}
-
-void CanBus::stopIVTS600()
-{
-  b2wdebug->addBuffer("Stop...\r\n", 9);
-  b2wdebug->send();
-  // SEND STOP///////
-  outframe.id = 0x600;   // Set our transmission address ID
-  outframe.length = 8;   // Data payload 8 bytes
-  outframe.extended = 0; // Extended addresses  0=11-bit1=29bit
-  outframe.rtr = 1;      // No request
-  outframe.data.bytes[0] = 0x34;
-  outframe.data.bytes[1] = 0x00;
-  outframe.data.bytes[2] = 0x01;
-  outframe.data.bytes[3] = 0x00;
-  outframe.data.bytes[4] = 0x00;
-  outframe.data.bytes[5] = 0x00;
-  outframe.data.bytes[6] = 0x00;
-  outframe.data.bytes[7] = 0x00;
-  CAN0.sendFrame(outframe);
-  b2wdebug->addBuffer("Done...\r\n", 9);
-  b2wdebug->send();
-}
-
-void CanBus::stopIVTS611()
-{
-  b2wdebug->addBuffer("Stop...\r\n", 9);
-  b2wdebug->send();
-  // SEND STOP///////
-  outframe.id = 0x611;   // Set our transmission address ID
-  outframe.length = 8;   // Data payload 8 bytes
-  outframe.extended = 0; // Extended addresses  0=11-bit1=29bit
-  outframe.rtr = 1;      // No request
-  outframe.data.bytes[0] = 0x34;
-  outframe.data.bytes[1] = 0x00;
-  outframe.data.bytes[2] = 0x01;
-  outframe.data.bytes[3] = 0x00;
-  outframe.data.bytes[4] = 0x00;
-  outframe.data.bytes[5] = 0x00;
-  outframe.data.bytes[6] = 0x00;
-  outframe.data.bytes[7] = 0x00;
-  CAN0.sendFrame(outframe);
-  b2wdebug->addBuffer("Done...\r\n", 9);
-  b2wdebug->send();
-}
-
-void CanBus::stopIVTS700()
-{
-  b2wdebug->addBuffer("Stop...\r\n", 9);
-  b2wdebug->send();
-  // SEND STOP///////
-  outframe.id = 0x700;   // Set our transmission address ID
-  outframe.length = 8;   // Data payload 8 bytes
-  outframe.extended = 0; // Extended addresses  0=11-bit1=29bit
-  outframe.rtr = 1;      // No request
-  outframe.data.bytes[0] = 0x34;
-  outframe.data.bytes[1] = 0x00;
-  outframe.data.bytes[2] = 0x01;
-  outframe.data.bytes[3] = 0x00;
-  outframe.data.bytes[4] = 0x00;
-  outframe.data.bytes[5] = 0x00;
-  outframe.data.bytes[6] = 0x00;
-  outframe.data.bytes[7] = 0x00;
-  CAN0.sendFrame(outframe);
-  b2wdebug->addBuffer("Done...\r\n", 9);
-  b2wdebug->send();
-}
-
-
-void CanBus::stopIVTS711()
-{
-  b2wdebug->addBuffer("Stop...\r\n", 9);
-  b2wdebug->send();
-  // SEND STOP///////
-  outframe.id = 0x711;   // Set our transmission address ID
-  outframe.length = 8;   // Data payload 8 bytes
-  outframe.extended = 0; // Extended addresses  0=11-bit1=29bit
-  outframe.rtr = 1;      // No request
-  outframe.data.bytes[0] = 0x34;
-  outframe.data.bytes[1] = 0x00;
-  outframe.data.bytes[2] = 0x01;
-  outframe.data.bytes[3] = 0x00;
-  outframe.data.bytes[4] = 0x00;
-  outframe.data.bytes[5] = 0x00;
-  outframe.data.bytes[6] = 0x00;
-  outframe.data.bytes[7] = 0x00;
+  outframe.id = cmdId;       // Set our transmission address ID
+  outframe.length = 8;       // Data payload 8 bytes
+  outframe.extended = false; // Extended addresses  0=11-bit1=29bit
+  outframe.rtr = 0;          // No request
+  outframe.data.uint8[0] = 0x34;
+  outframe.data.uint8[1] = 0x00;
+  outframe.data.uint8[2] = 0x01;
+  outframe.data.uint8[3] = 0x00;
+  outframe.data.uint8[4] = 0x00;
+  outframe.data.uint8[5] = 0x00;
+  outframe.data.uint8[6] = 0x00;
+  outframe.data.uint8[7] = 0x00;
   CAN0.sendFrame(outframe);
   b2wdebug->addBuffer("Done...\r\n", 9);
   b2wdebug->send();
@@ -362,10 +332,10 @@ void CanBus::startIVTS()
   b2wdebug->addBuffer("Start...\r\n", 10);
   b2wdebug->send();
   // SEND START///////
-  outframe.id = 0x600;   // Set our transmission address ID
+  outframe.id = cmdId;   // Set our transmission address ID
   outframe.length = 8;   // Data payload 8 bytes
   outframe.extended = 0; // Extended addresses  0=11-bit1=29bit
-  outframe.rtr = 1;      // No request
+  outframe.rtr = 0;      // No request
   outframe.data.bytes[0] = 0x34;
   outframe.data.bytes[1] = 0x01;
   outframe.data.bytes[2] = 0x01;
@@ -382,10 +352,10 @@ void CanBus::startIVTS()
 void CanBus::storeIVTS()
 {
   // SEND STORE///////
-  outframe.id = 0x411;   // Set our transmission address ID
+  outframe.id = cmdId;   // Set our transmission address ID
   outframe.length = 8;   // Data payload 8 bytes
   outframe.extended = 0; // Extended addresses  0=11-bit1=29bit
-  outframe.rtr = 1;      // No request
+  outframe.rtr = 0;      // No request
   outframe.data.bytes[0] = 0x32;
   outframe.data.bytes[1] = 0x00;
   outframe.data.bytes[2] = 0x00;
@@ -401,10 +371,10 @@ void CanBus::restartIVTS()
 {
   Serial.println("Restarting IVTS...");
   // Has the effect of zeroing AH and KWH
-  outframe.id = 0x600;   // Set our transmission address ID
+  outframe.id = cmdId;   // Set our transmission address ID
   outframe.length = 8;   // Data payload 8 bytes
   outframe.extended = 0; // Extended addresses  0=11-bit1=29bit
-  outframe.rtr = 1;      // No request
+  outframe.rtr = 0;      // No request
   outframe.data.bytes[0] = 0x3F;
   outframe.data.bytes[1] = 0x00;
   outframe.data.bytes[2] = 0x00;
@@ -418,11 +388,13 @@ void CanBus::restartIVTS()
 
 void CanBus::defaultIVTS()
 {
+  stopIVTS();
+  delay(500);
   // Returns module to original defaults
-  outframe.id = 0x600;   // Set our transmission address ID
+  outframe.id = cmdId;   // Set our transmission address ID
   outframe.length = 8;   // Data payload 8 bytes
   outframe.extended = 0; // Extended addresses  0=11-bit1=29bit
-  outframe.rtr = 1;      // No request
+  outframe.rtr = 0;      // No request
   outframe.data.bytes[0] = 0x3D;
   outframe.data.bytes[1] = 0x00;
   outframe.data.bytes[2] = 0x00;
@@ -432,16 +404,18 @@ void CanBus::defaultIVTS()
   outframe.data.bytes[6] = 0x00;
   outframe.data.bytes[7] = 0x00;
   CAN0.sendFrame(outframe);
+  delay(500);
+  startIVTS();
 }
 
 void CanBus::initCurrentIVTS()
 {
   stopIVTS();
   delay(500);
-  outframe.id = 0x411;   // Set our transmission address ID
+  outframe.id = cmdId;   // Set our transmission address ID
   outframe.length = 8;   // Data payload 8 bytes
   outframe.extended = 0; // Extended addresses  0=11-bit1=29bit
-  outframe.rtr = 1;      // No request
+  outframe.rtr = 0;      // No request
   outframe.data.bytes[0] = (0x21);
   outframe.data.bytes[1] = 0x42;
   outframe.data.bytes[2] = 0x01;

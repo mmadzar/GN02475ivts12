@@ -37,7 +37,11 @@ void CanBus::setup(class MqttPubSub &mqtt_client, Bytes2WiFi &wifiport, Bytes2Wi
     collectors[i]->onChange([](const char *name, int value, int min, int max, int samplesCollected, char *timestamp)
                             { 
                               status.collectors[settingsCollectors.getCollectorIndex(name)]=value;
-                              mqttClientCan->sendMessage(String(value), String(wifiSettings.hostname) + "/out/collectors/" + name); });
+                              mqttClientCan->sendMessage(String(value), String(wifiSettings.hostname) + "/out/collectors/" + name);
+                              mqttClientCan->sendMessage(String(min), String(wifiSettings.hostname) + "/out/collectors/" + name + "/min");
+                              mqttClientCan->sendMessage(String(max), String(wifiSettings.hostname) + "/out/collectors/" + name + "/max");
+                              mqttClientCan->sendMessage(String(samplesCollected), String(wifiSettings.hostname) + "/out/collectors/" + name + "/samplesCollected"); 
+                            });
     collectors[i]->setup();
   }
 }
@@ -124,7 +128,7 @@ void getTimestamp(char *buffer)
     gettimeofday(&tv, NULL);
 
     microsec = tv.tv_usec;
-    strftime(buffer, 29, "%Y:%m:%d %H:%M:%S", &(status.timeinfo));
+    strftime(buffer, 29, "%Y-%m-%d %H:%M:%S", &(status.timeinfo));
     sprintf(buffer, "%s.%06d", buffer, microsec);
   }
 }

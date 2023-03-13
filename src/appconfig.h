@@ -8,6 +8,7 @@
 #include <Arduino.h>
 #include <driver/gpio.h>
 #include "shared/configtypes/configtypes.h"
+
 // IVTS shunt monitors
 #define CURRENT "current"
 #define VOLTAGE "voltage"
@@ -28,12 +29,12 @@ struct Settings
 
 #define CollectorCount 6
   CollectorConfig collectors[CollectorCount] = {
-      {CURRENT, 500},        // mA
-      {VOLTAGE, 500},        // mV
-      {TEMPERATURE, 500},    // 0.1 C degrees - Shunt temperature C degrees
-      {POWER, 500},          // 1W
-      {CURRENTCOUNTER, 500}, // 1As current counter
-      {ENERGYCOUNTER, 500}}; // 1Wh energy counter
+      {CURRENT, 200},        // mA
+      {VOLTAGE, 200},        // mV
+      {TEMPERATURE, 200},    // 0.1 C degrees - Shunt temperature C degrees
+      {POWER, 200},          // 1W
+      {CURRENTCOUNTER, 200}, // 1As current counter
+      {ENERGYCOUNTER, 200}}; // 1Wh energy counter
 
   int getCollectorIndex(const char *name)
   {

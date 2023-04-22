@@ -29,12 +29,12 @@ struct Settings
 
 #define CollectorCount 6
   CollectorConfig collectors[CollectorCount] = {
-      {CURRENT, 200},        // mA
-      {VOLTAGE, 200},        // mV
-      {TEMPERATURE, 200},    // 0.1 C degrees - Shunt temperature C degrees
-      {POWER, 200},          // 1W
-      {CURRENTCOUNTER, 200}, // 1As current counter
-      {ENERGYCOUNTER, 200}}; // 1Wh energy counter
+      {CURRENT, 0},        // mA
+      {VOLTAGE, 0},        // mV
+      {TEMPERATURE, 0},    // 0.1 C degrees - Shunt temperature C degrees
+      {POWER, 0},          // 1W
+      {CURRENTCOUNTER, 0}, // 1As current counter
+      {ENERGYCOUNTER, 0}}; // 1Wh energy counter
 
   int getCollectorIndex(const char *name)
   {
